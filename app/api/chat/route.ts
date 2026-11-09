@@ -9,6 +9,8 @@ export const runtime = "nodejs"
 const maxMessageLength = 4_000
 const conversationLimit = 12
 const contextLimit = 30
+const notesContextLimit = 12
+const noteContentLimit = 4_000
 
 type TaskContext = {
   id: string
@@ -164,7 +166,7 @@ export async function POST(request: Request) {
       getUserCollection(userId, "chatMessages").orderBy("createdAt", "desc").limit(conversationLimit).get(),
       getUserCollection(userId, "tasks").limit(contextLimit).get(),
       getUserCollection(userId, "projects").limit(contextLimit).get(),
-      getUserCollection(userId, "notes").limit(contextLimit).get(),
+      getUserCollection(userId, "notes").orderBy("updatedAt", "desc").limit(notesContextLimit).get(),
     ])
     const history = historySnapshot.docs
       .reverse()
@@ -199,6 +201,12 @@ export async function POST(request: Request) {
       return {
         id: document.id,
         title: typeof data.title === "string" ? data.title : "",
+        content:
+          typeof data.content === "string"
+            ? data.content.slice(0, noteContentLimit)
+            : "",
+        contentTruncated:
+          typeof data.content === "string" && data.content.length > noteContentLimit,
         updatedAt: typeof data.updatedAt === "number" ? data.updatedAt : null,
       }
     })
@@ -225,7 +233,7 @@ Balas HANYA JSON valid dengan bentuk {"reply":"jawaban singkat untuk pengguna","
 
 Maksimal 8 tindakan per jawaban. Jangan mengusulkan penghapusan data. Bila instruksi ambigu atau informasi penting untuk membuat data tidak ada, tanyakan dahulu dan actions harus [].
 
-Tugas pengguna:\n${JSON.stringify(tasks)}\nProject pengguna:\n${JSON.stringify(projects)}\nCatatan pengguna (judul saja):\n${JSON.stringify(notes)}\nTanggal hari ini: ${new Date().toISOString().slice(0, 10)}`,
+Tugas pengguna:\n${JSON.stringify(tasks)}\nProject pengguna:\n${JSON.stringify(projects)}\nCatatan pengguna (judul dan isi; contentTruncated=true berarti isi dipotong):\n${JSON.stringify(notes)}\nJika isi catatan kosong, beri tahu bahwa catatan tersebut memang belum memiliki isi. Jangan mengarang isi catatan. Jika isi terpotong, sampaikan bahwa yang ditampilkan hanya sebagian isi.\nTanggal hari ini: ${new Date().toISOString().slice(0, 10)}`,
           },
           ...history,
           { role: "user", content: message.trim() },

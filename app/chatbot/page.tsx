@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react"
 import { Bot, Send, UserRound } from "lucide-react"
+import ReactMarkdown from "react-markdown"
 import { Sidebar } from "@/components/dashboard/sidebar"
 import { Header } from "@/components/dashboard/header"
 import { Button } from "@/components/ui/button"
@@ -12,15 +13,32 @@ import { useUserCollection } from "@/hooks/use-user-collection"
 import type { ChatAction } from "@/lib/chat-actions"
 import type { ChatRecord } from "@/lib/user-data"
 
+const thinkingSteps = [
+  "Thinking...",
+  "Considering your context...",
+  "Connecting the dots...",
+  "Preparing a helpful answer...",
+]
+
 export default function ChatbotPage() {
   const conversationRef = useRef<HTMLDivElement>(null)
   const { items, loading, error, addItem } = useUserCollection<ChatRecord>("chatMessages")
   const [prompt, setPrompt] = useState("")
   const [actionError, setActionError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const [thinkingStep, setThinkingStep] = useState(0)
   const [applyingActions, setApplyingActions] = useState(false)
   const [proposedActions, setProposedActions] = useState<ChatAction[]>([])
   const messages = [...items].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+
+  useEffect(() => {
+    if (!sending) return
+
+    const timer = window.setInterval(() => {
+      setThinkingStep((current) => (current + 1) % thinkingSteps.length)
+    }, 1600)
+    return () => window.clearInterval(timer)
+  }, [sending])
 
   useEffect(() => {
     const conversation = conversationRef.current
@@ -35,6 +53,7 @@ export default function ChatbotPage() {
     if (!text) return
 
     setActionError(null)
+    setThinkingStep(0)
     setSending(true)
     const createdAt = Date.now()
     try {
@@ -140,20 +159,37 @@ export default function ChatbotPage() {
                 {message.role === "assistant" && (
                   <Bot className="mt-2 size-4 shrink-0 text-primary" aria-hidden="true" />
                 )}
-                <p
-                  className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm ${
-                    message.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-foreground"
-                  }`}
-                >
-                  {message.text}
-                </p>
+                {message.role === "user" ? (
+                  <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-primary px-4 py-3 text-sm text-primary-foreground">
+                    {message.text}
+                  </p>
+                ) : (
+                  <div className="max-w-[85%] min-w-0 overflow-hidden rounded-2xl bg-muted px-4 py-3 text-sm text-foreground [&_a]:text-primary [&_a]:underline [&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-primary [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-background [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-xs [&_h1]:mb-2 [&_h1]:text-lg [&_h1]:font-bold [&_h2]:mt-3 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-3 [&_h3]:font-semibold [&_hr]:my-3 [&_li]:my-1 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:whitespace-pre-wrap [&_p:not(:first-child)]:mt-3 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-background [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5">
+                    <ReactMarkdown>{message.text}</ReactMarkdown>
+                  </div>
+                )}
                 {message.role === "user" && (
                   <UserRound className="mt-2 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                 )}
               </div>
             ))}
+            {sending && (
+              <div role="status" aria-live="polite" className="flex items-start gap-2">
+                <Bot className="mt-2 size-4 shrink-0 text-primary" aria-hidden="true" />
+                <div className="flex items-center gap-3 rounded-2xl bg-muted px-4 py-3 text-sm text-muted-foreground">
+                  <span>{thinkingSteps[thinkingStep]}</span>
+                  <span className="flex items-center gap-1" aria-hidden="true">
+                    {[0, 1, 2].map((dot) => (
+                      <span
+                        key={dot}
+                        className="size-1.5 animate-bounce rounded-full bg-primary motion-reduce:animate-none"
+                        style={{ animationDelay: `${dot * 150}ms` }}
+                      />
+                    ))}
+                  </span>
+                </div>
+              </div>
+            )}
             {proposedActions.length > 0 && (
               <Card className="space-y-3 border-primary/30 p-4">
                 <h3 className="text-sm font-semibold">Usulan perubahan — periksa sebelum diterapkan</h3>
@@ -184,7 +220,7 @@ export default function ChatbotPage() {
                 </div>
               </Card>
             )}
-            {!messages.length && (loading || !error) && (
+            {!sending && !messages.length && (loading || !error) && (
               <UserDataNotice
                 loading={loading}
                 error={null}
