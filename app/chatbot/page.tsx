@@ -214,7 +214,26 @@ export default function ChatbotPage() {
                         `Atur tugas “${action.taskTitle}”: ${Object.entries(action.updates)
                           .map(([field, value]) => `${field} → ${Array.isArray(value) ? value.join(", ") : String(value)}`)
                           .join(", ")}`}
+                      {action.type === "delete_task" && `Hapus tugas: ${action.taskTitle}`}
+                      {action.type === "create_project" && `Buat project: ${action.name}${action.dueDate ? ` (tenggat ${action.dueDate})` : ""}`}
+                      {action.type === "update_project" &&
+                        `Ubah project “${action.projectName}”: ${Object.entries(action.updates)
+                          .map(([field, value]) => `${field} → ${String(value)}`)
+                          .join(", ")}`}
+                      {action.type === "delete_project" && `Hapus project: ${action.projectName}`}
+                      {action.type === "create_event" &&
+                        `Tambah acara kalender: ${action.title} (${action.date}${action.time ? `, ${action.time}` : ""})`}
+                      {action.type === "update_event" &&
+                        `Ubah acara “${action.eventTitle}”: ${Object.entries(action.updates)
+                          .map(([field, value]) => `${field} → ${String(value)}`)
+                          .join(", ")}`}
+                      {action.type === "delete_event" && `Hapus acara: ${action.eventTitle}`}
                       {action.type === "create_note" && `Buat catatan: ${action.title}`}
+                      {action.type === "update_note" &&
+                        `Ubah catatan “${action.noteTitle}”: ${Object.entries(action.updates)
+                          .map(([field, value]) => `${field} → ${String(value)}`)
+                          .join(", ")}`}
+                      {action.type === "delete_note" && `Hapus catatan: ${action.noteTitle}`}
                     </li>
                   ))}
                 </ul>

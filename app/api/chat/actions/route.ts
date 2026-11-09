@@ -12,6 +12,10 @@ function isPriority(value: unknown): value is "High" | "Medium" | "Low" {
   return value === "High" || value === "Medium" || value === "Low"
 }
 
+function isValidId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 1500 && !value.includes("/")
+}
+
 function isValidTags(value: unknown): value is string[] {
   return Array.isArray(value) && value.length <= 10 && value.every((tag) => typeof tag === "string" && tag.length <= 40)
 }
@@ -46,49 +50,121 @@ function validateActions(value: unknown): ChatAction[] | null {
       continue
     }
 
-    if (
-      item.type === "create_note" &&
-      typeof item.title === "string" &&
-      item.title.trim().length > 0 &&
-      item.title.length <= 200 &&
-      typeof item.content === "string" &&
-      item.content.trim().length > 0 &&
-      item.content.length <= 10_000
-    ) {
-      actions.push({ type: "create_note", title: item.title.trim(), content: item.content.trim() })
-      continue
-    }
-
-    if (
-      item.type === "update_task" &&
-      typeof item.taskId === "string" &&
-      item.taskId.length > 0 &&
-      item.taskId.length <= 1500 &&
-      !item.taskId.includes("/") &&
-      isRecord(item.updates)
-    ) {
+    if (item.type === "update_task" && isValidId(item.taskId) && isRecord(item.updates)) {
       const updates = item.updates
       const cleanUpdates: Extract<ChatAction, { type: "update_task" }>["updates"] = {}
-      if (typeof updates.title === "string" && updates.title.trim().length > 0 && updates.title.length <= 200) {
+      if (typeof updates.title === "string" && updates.title.trim() && updates.title.length <= 200) {
         cleanUpdates.title = updates.title.trim()
       }
       if (typeof updates.project === "string" && updates.project.length <= 200) {
         cleanUpdates.project = updates.project.trim()
       }
       if (isPriority(updates.priority)) cleanUpdates.priority = updates.priority
-      if (typeof updates.dueDate === "string" && updates.dueDate.length <= 20) {
-        cleanUpdates.dueDate = updates.dueDate
-      }
+      if (typeof updates.dueDate === "string" && updates.dueDate.length <= 20) cleanUpdates.dueDate = updates.dueDate
       if (isValidTags(updates.tags)) cleanUpdates.tags = updates.tags
       if (typeof updates.completed === "boolean") cleanUpdates.completed = updates.completed
-      if (Object.keys(cleanUpdates).length === 0) return null
+      if (!Object.keys(cleanUpdates).length) return null
+      actions.push({ type: "update_task", taskId: item.taskId, taskTitle: "", updates: cleanUpdates })
+      continue
+    }
 
-      actions.push({
-        type: "update_task",
-        taskId: item.taskId,
-        taskTitle: "",
-        updates: cleanUpdates,
-      })
+    if (item.type === "delete_task" && isValidId(item.taskId)) {
+      actions.push({ type: "delete_task", taskId: item.taskId, taskTitle: "" })
+      continue
+    }
+
+    if (
+      item.type === "create_project" &&
+      typeof item.name === "string" &&
+      item.name.trim() &&
+      item.name.length <= 200 &&
+      typeof item.dueDate === "string" &&
+      item.dueDate.length <= 20
+    ) {
+      actions.push({ type: "create_project", name: item.name.trim(), dueDate: item.dueDate })
+      continue
+    }
+
+    if (item.type === "update_project" && isValidId(item.projectId) && isRecord(item.updates)) {
+      const updates: Extract<ChatAction, { type: "update_project" }>["updates"] = {}
+      if (typeof item.updates.name === "string" && item.updates.name.trim() && item.updates.name.length <= 200) {
+        updates.name = item.updates.name.trim()
+      }
+      if (typeof item.updates.dueDate === "string" && item.updates.dueDate.length <= 20) {
+        updates.dueDate = item.updates.dueDate
+      }
+      if (!Object.keys(updates).length) return null
+      actions.push({ type: "update_project", projectId: item.projectId, projectName: "", updates })
+      continue
+    }
+
+    if (item.type === "delete_project" && isValidId(item.projectId)) {
+      actions.push({ type: "delete_project", projectId: item.projectId, projectName: "" })
+      continue
+    }
+
+    if (
+      item.type === "create_event" &&
+      typeof item.title === "string" &&
+      item.title.trim() &&
+      item.title.length <= 200 &&
+      typeof item.date === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(item.date) &&
+      typeof item.time === "string" &&
+      item.time.length <= 10
+    ) {
+      actions.push({ type: "create_event", title: item.title.trim(), date: item.date, time: item.time })
+      continue
+    }
+
+    if (item.type === "update_event" && isValidId(item.eventId) && isRecord(item.updates)) {
+      const updates: Extract<ChatAction, { type: "update_event" }>["updates"] = {}
+      if (typeof item.updates.title === "string" && item.updates.title.trim() && item.updates.title.length <= 200) {
+        updates.title = item.updates.title.trim()
+      }
+      if (typeof item.updates.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item.updates.date)) {
+        updates.date = item.updates.date
+      }
+      if (typeof item.updates.time === "string" && item.updates.time.length <= 10) {
+        updates.time = item.updates.time
+      }
+      if (!Object.keys(updates).length) return null
+      actions.push({ type: "update_event", eventId: item.eventId, eventTitle: "", updates })
+      continue
+    }
+
+    if (item.type === "delete_event" && isValidId(item.eventId)) {
+      actions.push({ type: "delete_event", eventId: item.eventId, eventTitle: "" })
+      continue
+    }
+
+    if (
+      item.type === "create_note" &&
+      typeof item.title === "string" &&
+      item.title.trim() &&
+      item.title.length <= 200 &&
+      typeof item.content === "string" &&
+      item.content.length <= 10_000
+    ) {
+      actions.push({ type: "create_note", title: item.title.trim(), content: item.content.trim() })
+      continue
+    }
+
+    if (item.type === "update_note" && isValidId(item.noteId) && isRecord(item.updates)) {
+      const updates: Extract<ChatAction, { type: "update_note" }>["updates"] = {}
+      if (typeof item.updates.title === "string" && item.updates.title.trim() && item.updates.title.length <= 200) {
+        updates.title = item.updates.title.trim()
+      }
+      if (typeof item.updates.content === "string" && item.updates.content.length <= 10_000) {
+        updates.content = item.updates.content
+      }
+      if (!Object.keys(updates).length) return null
+      actions.push({ type: "update_note", noteId: item.noteId, noteTitle: "", updates })
+      continue
+    }
+
+    if (item.type === "delete_note" && isValidId(item.noteId)) {
+      actions.push({ type: "delete_note", noteId: item.noteId, noteTitle: "" })
       continue
     }
 
@@ -119,26 +195,79 @@ export async function POST(request: Request) {
   if (!actions) return Response.json({ error: "Tindakan tidak valid." }, { status: 400 })
 
   try {
-    const tasks = getUserCollection(userId, "tasks")
-    const updates = actions.filter(
-      (action): action is Extract<ChatAction, { type: "update_task" }> => action.type === "update_task",
+    const collectionForAction = (action: ChatAction) => {
+      switch (action.type) {
+        case "update_task":
+        case "delete_task":
+          return { collection: "tasks", id: action.taskId, operation: action.type === "delete_task" ? "delete" : "update" }
+        case "update_project":
+        case "delete_project":
+          return { collection: "projects", id: action.projectId, operation: action.type === "delete_project" ? "delete" : "update" }
+        case "update_event":
+        case "delete_event":
+          return { collection: "events", id: action.eventId, operation: action.type === "delete_event" ? "delete" : "update" }
+        case "update_note":
+        case "delete_note":
+          return { collection: "notes", id: action.noteId, operation: action.type === "delete_note" ? "delete" : "update" }
+        default:
+          return null
+      }
+    }
+    const existingActions = actions
+      .map((action) => ({ action, target: collectionForAction(action) }))
+      .filter((entry): entry is { action: ChatAction; target: NonNullable<ReturnType<typeof collectionForAction>> } =>
+        entry.target !== null,
+      )
+    const existingDocuments = await Promise.all(
+      existingActions.map(({ target }) => getUserCollection(userId, target.collection).doc(target.id).get()),
     )
-    const existingTasks = await Promise.all(updates.map((action) => tasks.doc(action.taskId).get()))
-    if (existingTasks.some((task) => !task.exists)) {
-      return Response.json({ error: "Sebagian tugas sudah tidak ditemukan. Muat ulang halaman lalu coba lagi." }, { status: 409 })
+    if (existingDocuments.some((document) => !document.exists)) {
+      return Response.json({ error: "Sebagian data sudah tidak ditemukan. Muat ulang chat lalu coba lagi." }, { status: 409 })
     }
 
     const firestore = getAdminFirestore()
     const batch = firestore.batch()
-    const taskRef = getUserCollection(userId, "tasks")
-    const noteRef = getUserCollection(userId, "notes")
     for (const action of actions) {
-      if (action.type === "create_task") {
-        batch.create(taskRef.doc(), { ...action, createdAt: Date.now() })
-      } else if (action.type === "update_task") {
-        batch.update(taskRef.doc(action.taskId), action.updates)
-      } else {
-        batch.create(noteRef.doc(), { title: action.title, content: action.content, updatedAt: Date.now() })
+      switch (action.type) {
+        case "create_task":
+          batch.create(getUserCollection(userId, "tasks").doc(), { ...action, createdAt: Date.now() })
+          break
+        case "update_task":
+          batch.update(getUserCollection(userId, "tasks").doc(action.taskId), action.updates)
+          break
+        case "delete_task":
+          batch.delete(getUserCollection(userId, "tasks").doc(action.taskId))
+          break
+        case "create_project":
+          batch.create(getUserCollection(userId, "projects").doc(), { ...action, createdAt: Date.now() })
+          break
+        case "update_project":
+          batch.update(getUserCollection(userId, "projects").doc(action.projectId), action.updates)
+          break
+        case "delete_project":
+          batch.delete(getUserCollection(userId, "projects").doc(action.projectId))
+          break
+        case "create_event":
+          batch.create(getUserCollection(userId, "events").doc(), { ...action, createdAt: Date.now() })
+          break
+        case "update_event":
+          batch.update(getUserCollection(userId, "events").doc(action.eventId), action.updates)
+          break
+        case "delete_event":
+          batch.delete(getUserCollection(userId, "events").doc(action.eventId))
+          break
+        case "create_note":
+          batch.create(getUserCollection(userId, "notes").doc(), { ...action, updatedAt: Date.now() })
+          break
+        case "update_note":
+          batch.update(getUserCollection(userId, "notes").doc(action.noteId), {
+            ...action.updates,
+            updatedAt: Date.now(),
+          })
+          break
+        case "delete_note":
+          batch.delete(getUserCollection(userId, "notes").doc(action.noteId))
+          break
       }
     }
     await batch.commit()

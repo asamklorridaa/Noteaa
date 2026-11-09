@@ -29,6 +29,10 @@ type TaskContext = {
   tags: string[]
 }
 
+type ProjectContext = { id: string; name: string; dueDate: string }
+type EventContext = { id: string; title: string; date: string; time: string }
+type NoteContext = { id: string; title: string; content: string; contentTruncated: boolean; updatedAt: number | null }
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
@@ -37,10 +41,19 @@ function isPriority(value: unknown): value is "High" | "Medium" | "Low" {
   return value === "High" || value === "Medium" || value === "Low"
 }
 
-function parseActions(value: unknown, tasks: TaskContext[]): ChatAction[] {
+function parseActions(
+  value: unknown,
+  tasks: TaskContext[],
+  projects: ProjectContext[],
+  events: EventContext[],
+  notes: NoteContext[],
+): ChatAction[] {
   if (!Array.isArray(value)) return []
 
-  const taskById = new Map(tasks.map((task) => [task.id, task]))
+  const taskById = new Map(tasks.map((item) => [item.id, item]))
+  const projectById = new Map(projects.map((item) => [item.id, item]))
+  const eventById = new Map(events.map((item) => [item.id, item]))
+  const noteById = new Map(notes.map((item) => [item.id, item]))
   const parsed: ChatAction[] = []
 
   for (const candidate of value.slice(0, 8)) {
@@ -104,13 +117,98 @@ function parseActions(value: unknown, tasks: TaskContext[]): ChatAction[] {
       continue
     }
 
+    if (candidate.type === "delete_task" && typeof candidate.taskId === "string") {
+      const task = taskById.get(candidate.taskId)
+      if (task) parsed.push({ type: "delete_task", taskId: task.id, taskTitle: task.title })
+      continue
+    }
+
+    if (
+      candidate.type === "create_project" &&
+      typeof candidate.name === "string" &&
+      candidate.name.trim() &&
+      candidate.name.length <= 200 &&
+      (candidate.dueDate === undefined || (typeof candidate.dueDate === "string" && candidate.dueDate.length <= 20))
+    ) {
+      parsed.push({
+        type: "create_project",
+        name: candidate.name.trim(),
+        dueDate: typeof candidate.dueDate === "string" ? candidate.dueDate : "",
+      })
+      continue
+    }
+
+    if (candidate.type === "update_project" && typeof candidate.projectId === "string" && isRecord(candidate.updates)) {
+      const project = projectById.get(candidate.projectId)
+      const updates: Extract<ChatAction, { type: "update_project" }>["updates"] = {}
+      if (typeof candidate.updates.name === "string" && candidate.updates.name.trim() && candidate.updates.name.length <= 200) {
+        updates.name = candidate.updates.name.trim()
+      }
+      if (typeof candidate.updates.dueDate === "string" && candidate.updates.dueDate.length <= 20) {
+        updates.dueDate = candidate.updates.dueDate
+      }
+      if (project && Object.keys(updates).length) {
+        parsed.push({ type: "update_project", projectId: project.id, projectName: project.name, updates })
+      }
+      continue
+    }
+
+    if (candidate.type === "delete_project" && typeof candidate.projectId === "string") {
+      const project = projectById.get(candidate.projectId)
+      if (project) {
+        parsed.push({ type: "delete_project", projectId: project.id, projectName: project.name })
+      }
+      continue
+    }
+
+    if (
+      candidate.type === "create_event" &&
+      typeof candidate.title === "string" &&
+      candidate.title.trim() &&
+      candidate.title.length <= 200 &&
+      typeof candidate.date === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(candidate.date) &&
+      (candidate.time === undefined || (typeof candidate.time === "string" && candidate.time.length <= 10))
+    ) {
+      parsed.push({
+        type: "create_event",
+        title: candidate.title.trim(),
+        date: candidate.date,
+        time: typeof candidate.time === "string" ? candidate.time : "",
+      })
+      continue
+    }
+
+    if (candidate.type === "update_event" && typeof candidate.eventId === "string" && isRecord(candidate.updates)) {
+      const event = eventById.get(candidate.eventId)
+      const updates: Extract<ChatAction, { type: "update_event" }>["updates"] = {}
+      if (typeof candidate.updates.title === "string" && candidate.updates.title.trim() && candidate.updates.title.length <= 200) {
+        updates.title = candidate.updates.title.trim()
+      }
+      if (typeof candidate.updates.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(candidate.updates.date)) {
+        updates.date = candidate.updates.date
+      }
+      if (typeof candidate.updates.time === "string" && candidate.updates.time.length <= 10) {
+        updates.time = candidate.updates.time
+      }
+      if (event && Object.keys(updates).length) {
+        parsed.push({ type: "update_event", eventId: event.id, eventTitle: event.title, updates })
+      }
+      continue
+    }
+
+    if (candidate.type === "delete_event" && typeof candidate.eventId === "string") {
+      const event = eventById.get(candidate.eventId)
+      if (event) parsed.push({ type: "delete_event", eventId: event.id, eventTitle: event.title })
+      continue
+    }
+
     if (
       candidate.type === "create_note" &&
       typeof candidate.title === "string" &&
       candidate.title.trim().length > 0 &&
       candidate.title.length <= 200 &&
       typeof candidate.content === "string" &&
-      candidate.content.trim().length > 0 &&
       candidate.content.length <= 10_000
     ) {
       parsed.push({
@@ -118,18 +216,45 @@ function parseActions(value: unknown, tasks: TaskContext[]): ChatAction[] {
         title: candidate.title.trim(),
         content: candidate.content.trim(),
       })
+      continue
+    }
+
+    if (candidate.type === "update_note" && typeof candidate.noteId === "string" && isRecord(candidate.updates)) {
+      const note = noteById.get(candidate.noteId)
+      const updates: Extract<ChatAction, { type: "update_note" }>["updates"] = {}
+      if (typeof candidate.updates.title === "string" && candidate.updates.title.trim() && candidate.updates.title.length <= 200) {
+        updates.title = candidate.updates.title.trim()
+      }
+      if (typeof candidate.updates.content === "string" && candidate.updates.content.length <= 10_000) {
+        updates.content = candidate.updates.content
+      }
+      if (note && Object.keys(updates).length) {
+        parsed.push({ type: "update_note", noteId: note.id, noteTitle: note.title, updates })
+      }
+      continue
+    }
+
+    if (candidate.type === "delete_note" && typeof candidate.noteId === "string") {
+      const note = noteById.get(candidate.noteId)
+      if (note) parsed.push({ type: "delete_note", noteId: note.id, noteTitle: note.title })
     }
   }
 
   return parsed
 }
 
-function parseAssistantResponse(content: string, tasks: TaskContext[]) {
+function parseAssistantResponse(
+  content: string,
+  tasks: TaskContext[],
+  projects: ProjectContext[],
+  events: EventContext[],
+  notes: NoteContext[],
+) {
   const json = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")
   try {
     const result: unknown = JSON.parse(json)
     if (isRecord(result) && typeof result.reply === "string" && result.reply.trim()) {
-      return { reply: result.reply.trim(), actions: parseActions(result.actions, tasks) }
+      return { reply: result.reply.trim(), actions: parseActions(result.actions, tasks, projects, events, notes) }
     }
   } catch {
     // Fall back to the model's plain-text response when it does not follow the requested JSON format.
@@ -175,10 +300,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const [historySnapshot, tasksSnapshot, projectsSnapshot, notesSnapshot] = await Promise.all([
+    const [historySnapshot, tasksSnapshot, projectsSnapshot, eventsSnapshot, notesSnapshot] = await Promise.all([
       getUserCollection(userId, "chatMessages").orderBy("createdAt", "desc").limit(conversationLimit).get(),
       getUserCollection(userId, "tasks").limit(contextLimit).get(),
       getUserCollection(userId, "projects").limit(contextLimit).get(),
+      getUserCollection(userId, "events").limit(contextLimit).get(),
       getUserCollection(userId, "notes").orderBy("updatedAt", "desc").limit(notesContextLimit).get(),
     ])
     const history = historySnapshot.docs
@@ -201,7 +327,7 @@ export async function POST(request: Request) {
         tags: Array.isArray(data.tags) ? data.tags.filter((tag): tag is string => typeof tag === "string") : [],
       }
     })
-    const projects = projectsSnapshot.docs.map((document) => {
+    const projects: ProjectContext[] = projectsSnapshot.docs.map((document) => {
       const data = document.data()
       return {
         id: document.id,
@@ -209,7 +335,16 @@ export async function POST(request: Request) {
         dueDate: typeof data.dueDate === "string" ? data.dueDate : "",
       }
     })
-    const notes = notesSnapshot.docs.map((document) => {
+    const events: EventContext[] = eventsSnapshot.docs.map((document) => {
+      const data = document.data()
+      return {
+        id: document.id,
+        title: typeof data.title === "string" ? data.title : "",
+        date: typeof data.date === "string" ? data.date : "",
+        time: typeof data.time === "string" ? data.time : "",
+      }
+    })
+    const notes: NoteContext[] = notesSnapshot.docs.map((document) => {
       const data = document.data()
       return {
         id: document.id,
@@ -237,16 +372,25 @@ export async function POST(request: Request) {
         messages: [
           {
             role: "system",
-            content: `Kamu adalah asisten produktivitas Noteaa. Jawab dalam bahasa Indonesia dengan ramah, jelas, dan praktis. Kamu boleh membantu membaca project dan tugas pengguna, membuat tugas/catatan, dan merapikan tugas. Data di bawah adalah milik pengguna yang sedang login. Jangan mengarang data yang tidak tersedia. Untuk setiap perubahan, berikan usulan tindakan dalam JSON; perubahan baru dijalankan setelah pengguna menekan tombol konfirmasi.
+            content: `Kamu adalah asisten produktivitas Noteaa. Jawab dalam bahasa Indonesia dengan ramah, jelas, dan praktis. Kamu bisa membaca dan mengelola data Tasks, Calendar (acara), Project, dan Notes pengguna. Dashboard dan Analytics adalah ringkasan otomatis dari data tersebut; ubah data sumbernya agar ringkasannya ikut berubah. Jangan mengarang data yang tidak tersedia. Semua perubahan harus berupa usulan JSON dan baru diterapkan setelah pengguna menekan tombol konfirmasi.
 
 Balas HANYA JSON valid dengan bentuk {"reply":"jawaban singkat untuk pengguna","actions":[...]}. Gunakan actions [] jika tidak perlu mengubah data. Jenis tindakan:
 - {"type":"create_task","title":"...","project":"nama project atau string kosong","priority":"High|Medium|Low","dueDate":"YYYY-MM-DD atau string kosong","tags":[]}
 - {"type":"update_task","taskId":"ID tugas persis dari konteks","updates":{"title":"...","project":"...","priority":"High|Medium|Low","dueDate":"YYYY-MM-DD atau string kosong","tags":[],"completed":false}}. Sertakan hanya field yang memang perlu diubah. Jangan usulkan taskId yang tidak ada.
+- {"type":"delete_task","taskId":"ID tugas persis dari konteks"}
+- {"type":"create_project","name":"...","dueDate":"YYYY-MM-DD atau string kosong"}
+- {"type":"update_project","projectId":"ID project persis dari konteks","updates":{"name":"...","dueDate":"YYYY-MM-DD atau string kosong"}}
+- {"type":"delete_project","projectId":"ID project persis dari konteks"}
+- {"type":"create_event","title":"...","date":"YYYY-MM-DD","time":"HH:mm atau string kosong"}
+- {"type":"update_event","eventId":"ID acara persis dari konteks","updates":{"title":"...","date":"YYYY-MM-DD","time":"HH:mm atau string kosong"}}
+- {"type":"delete_event","eventId":"ID acara persis dari konteks"}
 - {"type":"create_note","title":"...","content":"..."}
+- {"type":"update_note","noteId":"ID catatan persis dari konteks","updates":{"title":"...","content":"..."}}
+- {"type":"delete_note","noteId":"ID catatan persis dari konteks"}
 
-Maksimal 8 tindakan per jawaban. Jangan mengusulkan penghapusan data. Bila instruksi ambigu atau informasi penting untuk membuat data tidak ada, tanyakan dahulu dan actions harus [].
+Maksimal 8 tindakan per jawaban. Tindakan hapus hanya boleh diusulkan jika pengguna secara jelas meminta penghapusan, dan harus menyebut item yang tepat berdasarkan ID/konteks. Jangan pernah menghapus data untuk menafsirkan permintaan yang ambigu. Jika ada beberapa item yang cocok atau detail penting belum jelas, tanyakan dahulu dan gunakan actions []. Jangan mengubah data hanya untuk permintaan informasi.
 
-Tugas pengguna:\n${JSON.stringify(tasks)}\nProject pengguna:\n${JSON.stringify(projects)}\nCatatan pengguna (judul dan isi; contentTruncated=true berarti isi dipotong):\n${JSON.stringify(notes)}\nJika isi catatan kosong, beri tahu bahwa catatan tersebut memang belum memiliki isi. Jangan mengarang isi catatan. Jika isi terpotong, sampaikan bahwa yang ditampilkan hanya sebagian isi.\nTanggal hari ini: ${new Date().toISOString().slice(0, 10)}`,
+Tugas pengguna:\n${JSON.stringify(tasks)}\nProject pengguna:\n${JSON.stringify(projects)}\nAcara kalender pengguna:\n${JSON.stringify(events)}\nCatatan pengguna (judul dan isi; contentTruncated=true berarti isi dipotong):\n${JSON.stringify(notes)}\nJika isi catatan kosong, beri tahu bahwa catatan tersebut memang belum memiliki isi. Jangan mengarang isi catatan. Jika isi terpotong, sampaikan bahwa yang ditampilkan hanya sebagian isi.\nTanggal hari ini: ${new Date().toISOString().slice(0, 10)}`,
           },
           ...history,
           { role: "user", content: message.trim() },
@@ -292,7 +436,7 @@ Tugas pengguna:\n${JSON.stringify(tasks)}\nProject pengguna:\n${JSON.stringify(p
       return Response.json({ error: "Asisten AI tidak memberikan jawaban. Coba lagi." }, { status: 502 })
     }
 
-    const assistantResponse = parseAssistantResponse(content, tasks)
+    const assistantResponse = parseAssistantResponse(content, tasks, projects, events, notes)
     return Response.json(assistantResponse, { headers: { "Cache-Control": "private, no-store" } })
   } catch (error) {
     console.error("Failed to generate an AI response.", error)
