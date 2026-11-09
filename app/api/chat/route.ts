@@ -12,6 +12,13 @@ const contextLimit = 30
 const notesContextLimit = 12
 const noteContentLimit = 4_000
 
+const sensitiveMessagePatterns = [
+  /\b(?:CLERK_SECRET_KEY|OPENROUTER_API_KEY|FIREBASE_ADMIN_PRIVATE_KEY|NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)\s*=/i,
+  /\bsk_(?:test|live)_[A-Za-z0-9_-]{12,}\b/,
+  /\bsk-or-v1-[A-Fa-f0-9]{32,}\b/,
+  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
+]
+
 type TaskContext = {
   id: string
   title: string
@@ -154,6 +161,12 @@ export async function POST(request: Request) {
   if (typeof message !== "string" || !message.trim() || message.length > maxMessageLength) {
     return Response.json({ error: "Pesan tidak valid." }, { status: 400 })
   }
+  if (sensitiveMessagePatterns.some((pattern) => pattern.test(message))) {
+    return Response.json(
+      { error: "Pesan tampaknya berisi credential atau API key. Hapus credential sebelum mengirim pesan." },
+      { status: 400 },
+    )
+  }
 
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) {
@@ -244,7 +257,19 @@ Tugas pengguna:\n${JSON.stringify(tasks)}\nProject pengguna:\n${JSON.stringify(p
 
     if (!response.ok) {
       console.error("OpenRouter request failed with status:", response.status)
-      return Response.json({ error: "Asisten AI sedang bermasalah. Coba lagi nanti." }, { status: 502 })
+      const error =
+        response.status === 401 || response.status === 403
+          ? "Konfigurasi API AI ditolak. Periksa OPENROUTER_API_KEY di environment deployment."
+          : response.status === 402
+            ? "Kredit atau saldo OpenRouter tidak mencukupi."
+            : response.status === 404
+              ? "Model AI tidak ditemukan atau sedang tidak tersedia. Periksa OPENROUTER_MODEL."
+              : response.status === 429
+                ? "Batas penggunaan AI tercapai. Tunggu sebentar lalu coba lagi."
+                : response.status >= 500
+                  ? "Layanan OpenRouter sedang bermasalah. Coba lagi nanti."
+                  : "Permintaan AI ditolak. Periksa konfigurasi model lalu coba lagi."
+      return Response.json({ error }, { status: 502 })
     }
 
     const result: unknown = await response.json()
@@ -271,6 +296,9 @@ Tugas pengguna:\n${JSON.stringify(tasks)}\nProject pengguna:\n${JSON.stringify(p
     return Response.json(assistantResponse, { headers: { "Cache-Control": "private, no-store" } })
   } catch (error) {
     console.error("Failed to generate an AI response.", error)
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return Response.json({ error: "Layanan AI terlalu lama merespons. Coba lagi sebentar lagi." }, { status: 504 })
+    }
     return Response.json({ error: "Asisten AI sedang bermasalah. Coba lagi nanti." }, { status: 502 })
   }
 }
