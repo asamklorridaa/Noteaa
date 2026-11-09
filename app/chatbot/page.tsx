@@ -27,6 +27,7 @@ export default function ChatbotPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [thinkingStep, setThinkingStep] = useState(0)
+  const [pendingMessage, setPendingMessage] = useState<{ text: string; createdAt: number } | null>(null)
   const [applyingActions, setApplyingActions] = useState(false)
   const [proposedActions, setProposedActions] = useState<ChatAction[]>([])
   const messages = [...items].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
@@ -45,17 +46,19 @@ export default function ChatbotPage() {
     if (conversation) {
       conversation.scrollTop = conversation.scrollHeight
     }
-  }, [messages])
+  }, [messages, pendingMessage, sending])
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (sending) return
     const text = prompt.trim()
     if (!text) return
 
     setActionError(null)
     setThinkingStep(0)
-    setSending(true)
     const createdAt = Date.now()
+    setPendingMessage({ text, createdAt })
+    setSending(true)
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -85,8 +88,10 @@ export default function ChatbotPage() {
       await addItem({ role: "assistant", text: reply, createdAt: createdAt + 1 })
       setProposedActions(actions)
       setPrompt("")
+      setPendingMessage(null)
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Pesan gagal dikirim. Silakan coba lagi.")
+      setPendingMessage(null)
     } finally {
       setSending(false)
     }
@@ -173,6 +178,14 @@ export default function ChatbotPage() {
                 )}
               </div>
             ))}
+            {pendingMessage && (
+              <div className="flex items-start justify-end gap-2">
+                <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-primary px-4 py-3 text-sm text-primary-foreground">
+                  {pendingMessage.text}
+                </p>
+                <UserRound className="mt-2 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </div>
+            )}
             {sending && (
               <div role="status" aria-live="polite" className="flex items-start gap-2">
                 <Bot className="mt-2 size-4 shrink-0 text-primary" aria-hidden="true" />
@@ -220,7 +233,7 @@ export default function ChatbotPage() {
                 </div>
               </Card>
             )}
-            {!sending && !messages.length && (loading || !error) && (
+            {!sending && !pendingMessage && !messages.length && (loading || !error) && (
               <UserDataNotice
                 loading={loading}
                 error={null}
